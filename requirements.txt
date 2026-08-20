@@ -1,0 +1,6 @@
+streamlit
+pandas
+numpy
+plotly
+nfl_data_py==0.3.3
+pyarrow
