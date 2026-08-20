@@ -342,33 +342,33 @@ def inject_team_detail_theme(primary: str, secondary: str):
     st.markdown(
         f"""
         <style>
-        .stApp:has([data-baseweb="tab"]:nth-child(4)[aria-selected="true"]) {{
+        .stApp:has(.team-detail-active) {{
             background:
                 radial-gradient(circle at 8% 4%, {primary}35 0%, transparent 30%),
                 radial-gradient(circle at 92% 8%, {secondary}2F 0%, transparent 31%),
                 linear-gradient(145deg, #F8FAFC 0%, {primary}12 50%, {secondary}16 100%);
         }}
 
-        .stApp:has([data-baseweb="tab"]:nth-child(4)[aria-selected="true"])
+        .stApp:has(.team-detail-active)
         [data-testid="stHeader"] {{
             background: color-mix(in srgb, {primary} 8%, white 92%);
         }}
 
-        .stApp:has([data-baseweb="tab"]:nth-child(4)[aria-selected="true"])
+        .stApp:has(.team-detail-active)
         [data-baseweb="tab"]:nth-child(4)[aria-selected="true"] {{
             background: linear-gradient(135deg, {primary}22, {secondary}28);
             color: {primary} !important;
         }}
 
-        .stApp:has([data-baseweb="tab"]:nth-child(4)[aria-selected="true"])
+        .stApp:has(.team-detail-active)
         [data-testid="stMetric"] {{
             border-color: {secondary}35;
             box-shadow: 0 12px 35px {primary}14;
         }}
 
-        .stApp:has([data-baseweb="tab"]:nth-child(4)[aria-selected="true"])
+        .stApp:has(.team-detail-active)
         [data-testid="stPlotlyChart"],
-        .stApp:has([data-baseweb="tab"]:nth-child(4)[aria-selected="true"])
+        .stApp:has(.team-detail-active)
         [data-testid="stDataFrame"] {{
             border-color: {secondary}30;
         }}
@@ -416,6 +416,30 @@ def get_player_seasons():
 
 
 @st.cache_data(ttl=21600, show_spinner=False)
+def get_ranked_players_cached(season: int, position: str):
+    player_seasons = get_player_seasons()
+    season_players = player_seasons[player_seasons["season"].eq(season)].copy()
+    return rank_players(season_players, position)
+
+
+@st.cache_data(ttl=21600, show_spinner=False)
+def get_projection_tables_cached(position: str, projection_year: int, projection_mode: str):
+    player_seasons = get_player_seasons()
+    projections = build_projections(
+        player_seasons,
+        position=position,
+        target_season=projection_year,
+        mode=projection_mode,
+    )
+    breakout = breakout_candidates(
+        player_seasons,
+        position,
+        target_season=projection_year,
+    )
+    return projections, breakout
+
+
+@st.cache_data(ttl=21600, show_spinner=False)
 def get_teams():
     return load_teams()
 
@@ -441,25 +465,36 @@ st.caption(
     "are built from regular-season player data."
 )
 
-with st.spinner(f"Loading {season} team data..."):
-    try:
-        team_epa, off_metrics, def_metrics = get_season_data(season)
-    except Exception as exc:
-        st.error("Could not load nflverse play-by-play data.")
-        st.exception(exc)
-        st.stop()
-
-tabs = st.tabs([
+view_names = [
     "Team EPA",
     "Offensive Metrics",
     "Defensive Metrics",
     "Team Detail",
     "Player Rankings",
     "Projections & Breakouts",
-])
+]
+
+active_view = st.segmented_control(
+    "Dashboard section",
+    options=view_names,
+    default="Team EPA",
+    selection_mode="single",
+    label_visibility="collapsed",
+)
+
+if active_view is None:
+    active_view = "Team EPA"
 
 # -------- Team EPA --------
-with tabs[0]:
+if active_view == "Team EPA":
+    with st.spinner(f"Loading {season} team data..."):
+        try:
+            team_epa, off_metrics, def_metrics = get_season_data(season)
+        except Exception as exc:
+            st.error("Could not load nflverse play-by-play data.")
+            st.exception(exc)
+            st.stop()
+
     st.subheader("Offense vs Defense EPA per Play")
     situation = st.radio("Situation", ["All plays", "One-score games (±8 points)"], horizontal=True)
     x_col = "off_epa" if situation == "All plays" else "off_epa_onescore"
@@ -485,7 +520,15 @@ with tabs[0]:
     st.dataframe(clean_table(table_df), use_container_width=True, hide_index=True)
 
 # -------- Offense --------
-with tabs[1]:
+elif active_view == "Offensive Metrics":
+    with st.spinner(f"Loading {season} team data..."):
+        try:
+            team_epa, off_metrics, def_metrics = get_season_data(season)
+        except Exception as exc:
+            st.error("Could not load nflverse play-by-play data.")
+            st.exception(exc)
+            st.stop()
+
     st.subheader("Offensive Profile")
     metric_map = {
         "EPA/play": "off_epa",
@@ -526,7 +569,15 @@ with tabs[1]:
     )
 
 # -------- Defense --------
-with tabs[2]:
+elif active_view == "Defensive Metrics":
+    with st.spinner(f"Loading {season} team data..."):
+        try:
+            team_epa, off_metrics, def_metrics = get_season_data(season)
+        except Exception as exc:
+            st.error("Could not load nflverse play-by-play data.")
+            st.exception(exc)
+            st.stop()
+
     st.subheader("Defensive Profile")
     metric_map = {
         "Pressure Rate": "pressure_rate",
@@ -565,7 +616,16 @@ with tabs[2]:
     )
 
 # -------- Team Detail --------
-with tabs[3]:
+elif active_view == "Team Detail":
+    st.markdown('<div class="team-detail-active"></div>', unsafe_allow_html=True)
+    with st.spinner(f"Loading {season} team data..."):
+        try:
+            team_epa, off_metrics, def_metrics = get_season_data(season)
+        except Exception as exc:
+            st.error("Could not load nflverse play-by-play data.")
+            st.exception(exc)
+            st.stop()
+
     st.subheader("Team Detail")
     team_list = sorted(team_epa["team"].dropna().unique())
     team = st.selectbox("Team", team_list, index=0)
@@ -625,25 +685,21 @@ with tabs[3]:
         )
 
 # -------- Player Rankings --------
-with tabs[4]:
+elif active_view == "Player Rankings":
     st.subheader("Data-Driven Player Rankings")
     st.caption(
         "Rankings compare each player only against qualifying players at the same position."
     )
 
     try:
-        with st.spinner("Loading player-season data..."):
-            player_seasons = get_player_seasons()
-    except Exception as exc:
-        st.error("Could not build player-season data.")
-        st.exception(exc)
-    else:
         positions = ["QB", "RB", "WR", "TE", "EDGE", "DT", "LB", "CB", "S"]
         position = st.selectbox("Position", positions, key="rank_pos")
-
-        season_players = player_seasons[player_seasons["season"].eq(season)].copy()
-        st.caption(f"Loaded {len(season_players):,} regular-season player rows for {season}.")
-        ranked = rank_players(season_players, position)
+        with st.spinner("Loading player rankings..."):
+            ranked = get_ranked_players_cached(season, position)
+    except Exception as exc:
+        st.error("Could not build player rankings.")
+        st.exception(exc)
+    else:
         if ranked.empty:
             st.warning(
                 "The source loaded, but there were not enough qualifying players/metrics "
@@ -699,7 +755,7 @@ with tabs[4]:
                 )
 
 # -------- Projections / Breakouts --------
-with tabs[5]:
+elif active_view == "Projections & Breakouts":
     latest_player_season = latest_available_player_season()
     today = date.today()
 
@@ -733,32 +789,25 @@ with tabs[5]:
     st.caption(projection_caption)
 
     try:
-        player_seasons = get_player_seasons()
-    except Exception as exc:
-        st.error("Could not load player seasons for projections.")
-        st.exception(exc)
-    else:
         positions = ["QB", "RB", "WR", "TE", "EDGE", "DT", "LB", "CB", "S"]
         proj_pos = st.selectbox("Position", positions, key="proj_pos")
 
         projection_error = None
         with st.spinner(f"Building {projection_year} {proj_pos} projections..."):
             try:
-                projections = build_projections(
-                    player_seasons,
-                    position=proj_pos,
-                    target_season=projection_year,
-                    mode=projection_mode,
-                )
-                breakout = breakout_candidates(
-                    player_seasons,
+                projections, breakout = get_projection_tables_cached(
                     proj_pos,
-                    target_season=projection_year,
+                    projection_year,
+                    projection_mode,
                 )
             except Exception as exc:
                 projections = pd.DataFrame()
                 breakout = pd.DataFrame()
                 projection_error = exc
+    except Exception as exc:
+        st.error("Could not load player projections.")
+        st.exception(exc)
+    else:
 
         if projection_error is not None:
             st.error(
